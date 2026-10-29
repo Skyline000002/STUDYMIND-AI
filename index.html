@@ -1,0 +1,266 @@
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>StudyMind AI</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <h1>StudyMind AI</h1>
+        <p>
+            Comprends ton cours. Teste tes connaissances.
+            Progresse à ton rythme.
+        </p>
+        <button onclick="commencerRevisions()">
+            Commencer mes révisions
+        </button>
+    </header>
+
+    <main>
+        <h2>Comment veux-tu apprendre ?</h2>
+
+        <section class="cartes">
+            <article class="carte">
+                <h3>Mes fiches</h3>
+                <p>Retrouve l'essentiel de tes cours.</p>
+            </article>
+
+            <article class="carte">
+                <h3>Mes flashcards</h3>
+                <p>Mémorise les notions importantes.</p>
+            </article>
+
+            <article class="carte">
+                <h3>Mes quiz</h3>
+                <p>Teste tes connaissances.</p>
+            </article>
+        </section>
+
+        <section id="zone-revision">
+            <h2>Crée ta fiche de révision</h2>
+            <p>Colle ton cours ci-dessous pour commencer.</p>
+
+            <div class="import-zone">
+                <label for="fichierCours">
+                    Choisis ton cours (PDF, Word ou PowerPoint)
+                </label>
+
+                <input
+                    type="file"
+                    id="fichierCours"
+                    accept=".pdf,.docx,.pptx"
+                    onchange="afficherFichierChoisi()"
+                >
+
+                <button onclick="importerCours()">
+                    Importer mon cours
+                </button>
+
+                <p id="statutImport">Aucun fichier sélectionné.</p>
+            </div>
+
+            <textarea
+                id="cours"
+                placeholder="Colle ton cours ici..."
+                rows="8"
+            ></textarea>
+
+            <button onclick="genererFiche()">
+                Générer ma fiche
+            </button>
+
+            <div id="resultat">
+                <h3>Ta fiche apparaîtra ici</h3>
+            </div>
+        </section>
+    </main>
+
+    <!-- Bibliothèques pour lire les documents -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="https://unpkg.com/mammoth@1.9.0/mammoth.browser.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+    <script>
+        // Message de bienvenue
+        function commencerRevisions() {
+            alert("Bienvenue sur StudyMind AI ! Prêt à réviser ?");
+        }
+
+        // Afficher le nom du fichier choisi
+        function afficherFichierChoisi() {
+            const input = document.getElementById("fichierCours");
+            const statut = document.getElementById("statutImport");
+
+            if (input.files.length > 0) {
+                statut.textContent =
+                    "Fichier sélectionné : " + input.files[0].name;
+            } else {
+                statut.textContent = "Aucun fichier sélectionné.";
+            }
+        }
+
+        // Importer et lire un document
+        async function importerCours() {
+            const input = document.getElementById("fichierCours");
+            const statut = document.getElementById("statutImport");
+            const zoneCours = document.getElementById("cours");
+            const fichier = input.files[0];
+
+            if (!fichier) {
+                statut.textContent = "Choisis d'abord un fichier.";
+                return;
+            }
+
+            let texte = "";
+
+            try {
+                const extension = fichier.name
+                    .split(".")
+                    .pop()
+                    .toLowerCase();
+
+                statut.textContent = "Lecture du document en cours...";
+
+                if (extension === "pdf") {
+                    if (typeof pdfjsLib === "undefined") {
+                        throw new Error(
+                            "PDF.js n'est pas chargé. Vérifie ta connexion Internet."
+                        );
+                    }
+
+                    pdfjsLib.GlobalWorkerOptions.workerSrc =
+                        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+                    const donnees = new Uint8Array(
+                        await fichier.arrayBuffer()
+                    );
+
+                    const pdf = await pdfjsLib.getDocument({
+                        data: donnees
+                    }).promise;
+
+                    for (let i = 1; i <= pdf.numPages; i++) {
+                        statut.textContent =
+                            "Lecture du PDF : page " + i +
+                            " sur " + pdf.numPages + "...";
+
+                        const page = await pdf.getPage(i);
+                        const contenu = await page.getTextContent();
+
+                        const textePage = contenu.items
+                            .filter(element =>
+                                typeof element.str === "string"
+                            )
+                            .map(element => element.str)
+                            .join(" ");
+
+                        texte += textePage + "\n\n";
+                    }
+
+                } else if (extension === "docx") {
+                    if (typeof mammoth === "undefined") {
+                        throw new Error(
+                            "La bibliothèque Word n'est pas chargée."
+                        );
+                    }
+
+                    const resultat = await mammoth.extractRawText({
+                        arrayBuffer: await fichier.arrayBuffer()
+                    });
+
+                    texte = resultat.value;
+
+                } else if (extension === "pptx") {
+                    if (typeof JSZip === "undefined") {
+                        throw new Error(
+                            "La bibliothèque PowerPoint n'est pas chargée."
+                        );
+                    }
+
+                    const zip = await JSZip.loadAsync(fichier);
+
+                    const diapositives = Object.keys(zip.files)
+                        .filter(nom =>
+                            /^ppt\/slides\/slide\d+\.xml$/.test(nom)
+                        )
+                        .sort((a, b) => {
+                            const numeroA =
+                                Number(a.match(/slide(\d+)\.xml$/)[1]);
+                            const numeroB =
+                                Number(b.match(/slide(\d+)\.xml$/)[1]);
+
+                            return numeroA - numeroB;
+                        });
+
+                    for (const nom of diapositives) {
+                        const xml = await zip.files[nom].async("text");
+
+                        const documentXML =
+                            new DOMParser().parseFromString(
+                                xml,
+                                "application/xml"
+                            );
+
+                        const textes = Array.from(
+                            documentXML.getElementsByTagName("a:t")
+                        ).map(element => element.textContent);
+
+                        texte += textes.join(" ") + "\n\n";
+                    }
+
+                } else {
+                    throw new Error(
+                        "Format non pris en charge. Utilise PDF, DOCX ou PPTX."
+                    );
+                }
+
+                if (!texte.trim()) {
+                    throw new Error(
+                        "Aucun texte détecté. Le PDF est peut-être scanné."
+                    );
+                }
+
+                zoneCours.value = texte.trim();
+
+                statut.textContent =
+                    "Importation réussie ! Tu peux générer ta fiche.";
+
+            } catch (erreur) {
+                console.error("Erreur d'importation :", erreur);
+
+                statut.textContent =
+                    "Erreur : " + erreur.message;
+            }
+        }
+
+        // Générer une première fiche à partir du texte extrait
+        function genererFiche() {
+            const cours = document.getElementById("cours").value;
+            const resultat = document.getElementById("resultat");
+
+            if (cours.trim() === "") {
+                alert("Colle ou importe d'abord ton cours !");
+                return;
+            }
+
+            const phrases = cours
+                .replace(/\s+/g, " ")
+                .split(/(?<=[.!?])\s+/)
+                .filter(phrase => phrase.trim() !== "");
+
+            const fiche = phrases.slice(0, 5);
+
+            resultat.textContent =
+                "Fiche de révision\n\n" +
+                fiche
+                    .map((phrase, index) =>
+                        (index + 1) + ". " + phrase.trim()
+                    )
+                    .join("\n\n");
+        }
+    </script>
+</body>
+</html>
